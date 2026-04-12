@@ -1,0 +1,16 @@
+# Local env (copy from identity_service/.env.example)
+.env
+**/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
