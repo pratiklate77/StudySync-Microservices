@@ -1,0 +1,10 @@
+# Core: FastAPI, Motor (async MongoDB), Pydantic, PyJWT, aiokafka, Redis
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
+motor>=3.4,<4
+pydantic>=2.6,<3
+pydantic-settings>=2.2,<3
+PyJWT>=2.8,<3
+redis[hiredis]>=5.0,<6
+aiokafka>=0.10,<1
+python-multipart>=0.0.9,<1
