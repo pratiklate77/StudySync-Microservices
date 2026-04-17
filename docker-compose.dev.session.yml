@@ -1,0 +1,68 @@
+# Dev Session Service — MongoDB, Redis, Session Service only
+# Run: docker compose -f docker-compose.dev.session.yml up -d
+# Services: MongoDB, Redis, Session Service (without identity service, Kafka, etc.)
+# Perfect for dev testing and local development
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: studysync-mongo-dev
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data_dev:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - studysync-dev
+
+  redis:
+    image: redis:7-alpine
+    container_name: studysync-redis-dev
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - studysync-dev
+
+  session_service:
+    build: ./session_service
+    container_name: studysync-session-dev
+    ports:
+      - "8001:8001"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./session_service/.env.dev.session
+    environment:
+      # Override any .env values if needed
+      MONGODB_URL: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/1
+    networks:
+      - studysync-dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo_data_dev:
+  redis_data_dev:
+
+networks:
+  studysync-dev:
+    driver: bridge
