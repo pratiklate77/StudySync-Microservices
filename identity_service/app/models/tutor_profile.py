@@ -1,5 +1,6 @@
+from __future__ import annotations
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import ARRAY, Boolean, ForeignKey, Integer, Numeric, String, Text
@@ -25,8 +26,8 @@ class TutorProfile(Base):
         nullable=False,
         index=True,
     )
-    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expertise: Mapped[list[str]] = mapped_column(ARRAY(String(128)), nullable=False)
+    bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    expertise: Mapped[List[str]] = mapped_column(ARRAY(String(128)), nullable=False)
     hourly_rate: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False, default=Decimal("0")
     )

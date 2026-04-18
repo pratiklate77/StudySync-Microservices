@@ -4,16 +4,23 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from pymongo import ASCENDING
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
-from app.core.database import close_motor_client, get_motor_client
+from app.core.database import close_motor_client, get_database, get_motor_client
 from app.core.redis_client import close_redis, create_redis
 from app.events.kafka_consumer import PaymentEventsConsumer, UserEventsConsumer
 from app.events.kafka_producer import create_kafka_producer, stop_kafka_producer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("session-service")
+
+
+async def _ensure_indexes() -> None:
+    db = get_database()
+    await db.sessions.create_index([("location", "2dsphere")], name="sessions_location_2dsphere")
+    await db.sessions.create_index([("status", ASCENDING)], name="sessions_status_idx")
 
 
 async def _create_producer_with_retry(settings, retries: int = 10, delay: float = 5.0):
@@ -41,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Connect to MongoDB
     client = get_motor_client()
     await client.admin.command("ping")
+    await _ensure_indexes()
     logger.info("✅ MongoDB connected")
 
     # Connect to Redis

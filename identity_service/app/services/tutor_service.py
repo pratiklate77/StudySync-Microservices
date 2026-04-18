@@ -1,3 +1,4 @@
+from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
@@ -11,7 +12,7 @@ from app.models.tutor_profile import TutorProfile
 from app.models.user import User, UserRole
 from app.repositories.tutor_repository import TutorRepository
 from app.repositories.user_repository import UserRepository
-from app.schemas.tutor import TutorBecome, TutorProfileRead
+from app.schemas.tutor import TutorBecome, TutorProfileRead, TutorProfileUpdate, TutorStatsRead
 from app.services.top_tutors_cache import TopTutorsCacheService
 
 
@@ -88,3 +89,109 @@ class TutorService:
         payload = [TutorProfileRead.model_validate(r, from_attributes=True).model_dump(mode="json") for r in rows]
         await cache.set_cached_payload(cache.serialize_entries(payload))
         return [TutorProfileRead.model_validate(r, from_attributes=True) for r in rows]
+
+    async def get_tutor_by_id(self, tutor_id: UUID) -> TutorProfileRead:
+        """Get a specific tutor profile by ID."""
+        profile = await self._tutors.get_by_id(tutor_id)
+        if profile is None or not profile.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tutor profile not found")
+        return TutorProfileRead.model_validate(profile, from_attributes=True)
+
+    async def get_tutor_by_user_id(self, user_id: UUID) -> TutorProfileRead:
+        """Get tutor profile by user ID."""
+        profile = await self._tutors.get_by_user_id(user_id)
+        if profile is None or not profile.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tutor profile not found")
+        return TutorProfileRead.model_validate(profile, from_attributes=True)
+
+    async def search_tutors(
+        self,
+        *,
+        expertise_tags: list[str] | None = None,
+        min_rating: float | None = None,
+        verified_only: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[TutorProfileRead]:
+        """Search tutors with filters."""
+        rows = await self._tutors.search(
+            expertise_tags=expertise_tags,
+            min_rating=min_rating,
+            verified_only=verified_only,
+            limit=limit,
+            offset=offset,
+        )
+        return [TutorProfileRead.model_validate(r, from_attributes=True) for r in rows]
+
+    async def update_tutor_profile(
+        self,
+        tutor_id: UUID,
+        requester_id: UUID,
+        data: TutorProfileUpdate,
+    ) -> TutorProfileRead:
+        """Update tutor profile (self only)."""
+        profile = await self._tutors.get_by_id(tutor_id)
+        if profile is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tutor profile not found")
+        if profile.user_id != requester_id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="You can only update your own profile",
+            )
+        
+        # Normalize hourly rate if provided
+        hourly_rate = data.hourly_rate
+        if hourly_rate is not None:
+            money = Decimal("0.01")
+            hourly_rate = hourly_rate.quantize(money, rounding=ROUND_HALF_UP)
+        
+        updated = await self._tutors.update(
+            tutor_id,
+            bio=data.bio,
+            expertise=data.expertise,
+            hourly_rate=hourly_rate,
+        )
+        if updated is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Failed to update profile")
+        await self._session.commit()
+        await self._session.refresh(updated)
+        return TutorProfileRead.model_validate(updated, from_attributes=True)
+
+    async def delete_tutor_profile(self, tutor_id: UUID, requester_id: UUID) -> TutorProfileRead:
+        """Soft delete tutor profile (self only)."""
+        profile = await self._tutors.get_by_id(tutor_id)
+        if profile is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tutor profile not found")
+        if profile.user_id != requester_id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="You can only delete your own profile",
+            )
+        
+        deleted = await self._tutors.soft_delete(tutor_id)
+        await self._session.commit()
+        await self._session.refresh(deleted)
+        return TutorProfileRead.model_validate(deleted, from_attributes=True)
+
+    async def get_tutor_stats(self, tutor_id: UUID) -> TutorStatsRead:
+        """Get tutor statistics and rating info."""
+        profile = await self._tutors.get_by_id(tutor_id)
+        if profile is None or not profile.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Tutor profile not found")
+        
+        # Calculate average rating
+        average = 0.0
+        if profile.total_reviews > 0:
+            average = profile.rating_sum / profile.total_reviews
+        
+        return TutorStatsRead(
+            id=profile.id,
+            user_id=profile.user_id,
+            bio=profile.bio,
+            expertise=profile.expertise,
+            hourly_rate=profile.hourly_rate,
+            is_verified=profile.is_verified,
+            average_rating=average,
+            total_reviews=profile.total_reviews,
+            rating_sum=profile.rating_sum,
+        )

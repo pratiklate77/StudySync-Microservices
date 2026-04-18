@@ -1,4 +1,5 @@
-from datetime import UTC, datetime, timedelta
+from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -20,7 +21,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(subject: UUID, expires_delta: timedelta | None = None) -> str:
     settings = get_settings()
-    expire = datetime.now(UTC) + (
+    expire = datetime.now(timezone.utc) + (
         expires_delta
         if expires_delta is not None
         else timedelta(minutes=settings.jwt_access_token_expire_minutes)

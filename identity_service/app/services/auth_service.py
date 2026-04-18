@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User, UserRole
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth import UserLogin, UserRegister
+from app.schemas.auth import UserLogin, UserProfileUpdate, UserRegister
 
 
 class AuthService:
@@ -46,3 +46,26 @@ class AuthService:
             )
         token = create_access_token(UUID(str(user.id)))
         return token, user
+
+    async def update_profile(self, user_id: UUID, data: UserProfileUpdate) -> User:
+        """Update user profile (location)."""
+        updated = await self._users.update_location(
+            user_id,
+            latitude=data.last_known_latitude,
+            longitude=data.last_known_longitude,
+        )
+        if updated is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        await self._session.commit()
+        # Reload with joined tutor_profile so response serialization doesn't trigger lazy-load IO.
+        user = await self._users.get_by_id_with_tutor(user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        return user
+
+    async def get_profile(self, user_id: UUID) -> User:
+        """Get user profile with tutor info if available."""
+        user = await self._users.get_by_id_with_tutor(user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        return user
