@@ -1,6 +1,7 @@
+from __future__ import annotations
 import enum
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, Enum, Float, String, func
@@ -32,13 +33,13 @@ class User(Base):
         default=UserRole.user,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    last_known_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
-    last_known_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_known_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    last_known_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    tutor_profile: Mapped["TutorProfile | None"] = relationship(
+    tutor_profile: Mapped[Optional["TutorProfile"]] = relationship(
         "TutorProfile",
         back_populates="user",
         uselist=False,

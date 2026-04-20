@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     redis = await create_redis(settings.redis_url)
     await redis.ping()
     app.state.redis = redis
+    await asyncio.sleep(10)
     producer = await create_kafka_producer(settings)
     app.state.kafka_producer = producer
     consumer = RatingEventsConsumer(settings, AsyncSessionLocal, redis)
