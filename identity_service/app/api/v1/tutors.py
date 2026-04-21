@@ -2,13 +2,13 @@ from __future__ import annotations
 import secrets
 from uuid import UUID
 
-from aiokafka import AIOKafkaProducer
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import get_current_user
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
+from app.kafka.producer import ResilientKafkaProducer
 from app.models.user import User
 from app.schemas.tutor import (
     TutorBecome,
@@ -35,14 +35,8 @@ def get_cache(
     return TopTutorsCacheService(redis, settings)
 
 
-def get_kafka_producer(request: Request) -> AIOKafkaProducer:
-    producer = getattr(request.app.state, "kafka_producer", None)
-    if producer is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Kafka producer is not available",
-        )
-    return producer
+def get_kafka_producer(request: Request) -> ResilientKafkaProducer:
+    return request.app.state.kafka_publisher
 
 
 @router.post("/become", response_model=TutorProfileRead, status_code=201)
@@ -136,7 +130,7 @@ async def get_tutor(
 async def verify_tutor_admin(
     user_id: UUID,
     service: TutorService = Depends(get_tutor_service),
-    producer: AIOKafkaProducer = Depends(get_kafka_producer),
+    producer: ResilientKafkaProducer = Depends(get_kafka_producer),
     cache: TopTutorsCacheService = Depends(get_cache),
     settings: Settings = Depends(get_settings),
     x_admin_api_key: str | None = Header(default=None, alias="X-Admin-API-Key"),

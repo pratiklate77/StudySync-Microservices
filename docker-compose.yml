@@ -119,6 +119,11 @@ services:
       KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
     volumes:
       - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
     networks:
       - studysync
   mongo:
@@ -138,8 +143,12 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     env_file:
       - ./identity_service/.env
     networks:

@@ -1,10 +1,12 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import get_current_user
+from app.core.config import Settings, get_settings
 from app.core.database import get_db
+from app.kafka.producer import ResilientKafkaProducer
 from app.models.user import User
 from app.schemas.auth import Token, UserLogin, UserProfileRead, UserProfileUpdate, UserRead, UserRegister
 from app.services.auth_service import AuthService
@@ -12,8 +14,20 @@ from app.services.auth_service import AuthService
 router = APIRouter()
 
 
-def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
-    return AuthService(db)
+def get_kafka_publisher(request: Request) -> ResilientKafkaProducer:
+    return request.app.state.kafka_publisher
+
+
+def get_auth_service(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AuthService:
+    return AuthService(
+        db,
+        event_publisher=get_kafka_publisher(request),
+        settings=settings,
+    )
 
 
 @router.post("/register", response_model=UserRead, status_code=201)

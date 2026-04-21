@@ -1,5 +1,5 @@
-import logging
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -10,7 +10,10 @@ from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 from app.core.redis_client import close_redis, create_redis
 from app.events.kafka_consumer import RatingEventsConsumer
-from app.events.kafka_producer import create_kafka_producer, stop_kafka_producer
+from app.kafka.circuit_breaker import CircuitBreaker
+from app.kafka.fallback_store import InMemoryFallbackStore
+from app.kafka.producer import ResilientKafkaProducer
+from app.kafka.retry_worker import KafkaRetryWorker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("identity-service")
@@ -23,16 +26,43 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     redis = await create_redis(settings.redis_url)
     await redis.ping()
     app.state.redis = redis
-    await asyncio.sleep(10)
-    producer = await create_kafka_producer(settings)
-    app.state.kafka_producer = producer
+
+    fallback_store = InMemoryFallbackStore()
+    circuit_breaker = CircuitBreaker(
+        failure_threshold=settings.kafka_circuit_breaker_failure_threshold,
+        recovery_timeout=settings.kafka_circuit_breaker_recovery_timeout_seconds,
+    )
+    publisher = ResilientKafkaProducer(
+        settings=settings,
+        circuit_breaker=circuit_breaker,
+        fallback_store=fallback_store,
+    )
+    connected = await publisher.start()
+    if not connected:
+        logger.warning("Continuing startup with Kafka in fallback mode")
+
+    retry_worker = KafkaRetryWorker(
+        producer=publisher,
+        fallback_store=fallback_store,
+        base_delay=settings.kafka_retry_base_delay_seconds,
+        max_delay=settings.kafka_retry_max_delay_seconds,
+    )
+    retry_task = asyncio.create_task(retry_worker.run(), name="identity-kafka-retry-worker")
+    app.state.kafka_publisher = publisher
+    app.state.kafka_retry_worker = retry_worker
+    app.state.kafka_retry_task = retry_task
+
     consumer = RatingEventsConsumer(settings, AsyncSessionLocal, redis)
-    await consumer.start()
+    consumer_connected = await consumer.start()
+    if not consumer_connected:
+        logger.warning("Continuing startup without rating events consumer")
     app.state.rating_consumer = consumer
     logger.info("Identity service startup complete")
     yield
     await consumer.stop()
-    await stop_kafka_producer(producer)
+    await retry_worker.stop()
+    await retry_task
+    await publisher.stop()
     await close_redis(redis)
     logger.info("Identity service shutdown complete")
 

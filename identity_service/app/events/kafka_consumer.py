@@ -31,18 +31,45 @@ class RatingEventsConsumer:
         self._consumer: AIOKafkaConsumer | None = None
         self._task: asyncio.Task[None] | None = None
 
-    async def start(self) -> None:
-        self._consumer = AIOKafkaConsumer(
-            self._settings.kafka_rating_events_topic,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers.split(","),
-            group_id=self._settings.kafka_consumer_group,
-            client_id=f"{self._settings.kafka_client_id}-rating-consumer",
-            enable_auto_commit=True,
-            auto_offset_reset="earliest",
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        )
-        await self._consumer.start()
-        self._task = asyncio.create_task(self._run_loop(), name="identity-rating-consumer")
+    async def start(self, retries: int | None = None, delay: float | None = None) -> bool:
+        max_retries = retries if retries is not None else self._settings.kafka_startup_max_retries
+        retry_delay = delay if delay is not None else self._settings.kafka_startup_retry_delay_seconds
+
+        for attempt in range(1, max_retries + 1):
+            consumer = AIOKafkaConsumer(
+                self._settings.kafka_rating_events_topic,
+                bootstrap_servers=self._settings.kafka_bootstrap_servers.split(","),
+                group_id=self._settings.kafka_consumer_group,
+                client_id=f"{self._settings.kafka_client_id}-rating-consumer",
+                enable_auto_commit=True,
+                auto_offset_reset="earliest",
+                value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            )
+            try:
+                await asyncio.wait_for(
+                    consumer.start(),
+                    timeout=self._settings.kafka_startup_timeout_seconds,
+                )
+                self._consumer = consumer
+                self._task = asyncio.create_task(self._run_loop(), name="identity-rating-consumer")
+                logger.info("Rating events consumer connected on startup attempt %d", attempt)
+                return True
+            except Exception as exc:
+                logger.warning(
+                    "Rating events consumer startup attempt %d/%d failed: %s",
+                    attempt,
+                    max_retries,
+                    exc,
+                )
+                try:
+                    await consumer.stop()
+                except Exception:
+                    logger.exception("Failed to stop Kafka consumer after startup error")
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
+
+        logger.error("Rating events consumer unavailable after %d startup attempts", max_retries)
+        return False
 
     async def _run_loop(self) -> None:
         cache = TopTutorsCacheService(self._redis, self._settings)
