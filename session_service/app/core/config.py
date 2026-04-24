@@ -1,17 +1,20 @@
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # ✅ Auth & Standalone mode configuration
     AUTH_ENABLED: bool = True
     KAFKA_ENABLED: bool = True
     STANDALONE_MODE: bool = False
     TEST_USER_ID: str | None = None
-    
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     mongodb_url: str = "mongodb://localhost:27017"
     mongodb_db_name: str = "session_db"

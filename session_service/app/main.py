@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     application = FastAPI(
-        title="StudySync Session & Group Service",
+        title="StudySync Session Service",
         version="0.1.0",
         lifespan=lifespan,
     )

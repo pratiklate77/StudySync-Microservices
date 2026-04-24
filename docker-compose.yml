@@ -43,6 +43,25 @@ services:
     networks:
       - studysync
 
+  # postgres_chat:
+  #   image: postgres:16-alpine
+  #   container_name: studysync-postgres-chat
+  #   environment:
+  #     POSTGRES_USER: studysync
+  #     POSTGRES_PASSWORD: studysync_dev
+  #     POSTGRES_DB: chat_db
+  #   ports:
+  #     - "5434:5432"
+  #   volumes:
+  #     - postgres_chat_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U studysync -d chat_db"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+  #   networks:
+  #     - studysync
+
   redis:
     image: redis:7-alpine
     container_name: studysync-redis
@@ -119,11 +138,6 @@ services:
       KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
     volumes:
       - kafka_data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
     networks:
       - studysync
   mongo:
@@ -143,12 +157,9 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - postgres
+      - redis
+      - kafka
     env_file:
       - ./identity_service/.env
     networks:
@@ -182,13 +193,35 @@ services:
     networks:
       - studysync
 
+      
+
+  # chat_service:
+  #   build: ./chat_service
+  #   container_name: studysync-chat
+  #   ports:
+  #     - "8003:8003"
+  #   depends_on:
+  #     - postgres_chat
+  #     - redis
+  #     - kafka
+  #     - group_service
+  #   env_file:
+  #     - ./chat_service/.env
+  #   networks:
+  #     - studysync
+ 
+
+    
+
 volumes:
   postgres_data:
   postgres_group_data:
+  postgres_chat_data:
   redis_data:
   zookeeper_data:
   kafka_data:
   mongo_data:
+
 
 
 
