@@ -1,12 +1,12 @@
 from uuid import UUID
 
-from aiokafka import AIOKafkaProducer
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.events.events import user_joined_payload, user_left_payload
 from app.events.kafka_producer import publish_event
+from app.kafka.producer import ResilientKafkaProducer
 from app.models.group_member import GroupMember, MemberRole
 from app.repositories.group_repository import GroupRepository
 from app.repositories.member_repository import MemberRepository
@@ -26,7 +26,7 @@ class MemberService:
         self._members = MemberRepository(session)
 
     async def join_group(
-        self, group_id: UUID, user_id: UUID, producer: AIOKafkaProducer, settings: Settings
+        self, group_id: UUID, user_id: UUID, producer: ResilientKafkaProducer, settings: Settings
     ) -> MemberRead:
         group = require_active_group(await self._groups.get_by_id(group_id))
 
@@ -57,7 +57,7 @@ class MemberService:
         return MemberRead.model_validate(created)
 
     async def leave_group(
-        self, group_id: UUID, user_id: UUID, producer: AIOKafkaProducer, settings: Settings
+        self, group_id: UUID, user_id: UUID, producer: ResilientKafkaProducer, settings: Settings
     ) -> None:
         group = require_active_group(await self._groups.get_by_id(group_id))
         require_not_owner(group, user_id)

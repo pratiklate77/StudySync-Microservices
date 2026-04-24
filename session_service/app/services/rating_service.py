@@ -1,11 +1,11 @@
 from uuid import UUID
 
-from aiokafka import AIOKafkaProducer
 from fastapi import HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.config import Settings
 from app.events.kafka_producer import publish_rating_submitted
+from app.kafka.producer import ResilientKafkaProducer
 from app.models.rating import Rating
 from app.models.session import SessionStatus
 from app.repositories.rating_repository import RatingRepository
@@ -23,7 +23,7 @@ class RatingService:
         session_id: UUID,
         student_id: UUID,
         data: RatingSubmit,
-        producer: AIOKafkaProducer,
+        producer: ResilientKafkaProducer,
         settings: Settings,
     ) -> RatingRead:
         session = await self._sessions.get_by_id(session_id)

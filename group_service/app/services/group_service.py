@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from aiokafka import AIOKafkaProducer
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.events.events import group_created_payload, group_deleted_payload
 from app.events.kafka_producer import publish_event
+from app.kafka.producer import ResilientKafkaProducer
 from app.models.group import Group
 from app.models.group_member import GroupMember, MemberRole
 from app.repositories.group_repository import GroupRepository
@@ -38,7 +38,7 @@ class GroupService:
         self._members = MemberRepository(session)
 
     async def create_group(
-        self, owner_id: UUID, data: GroupCreate, producer: AIOKafkaProducer, settings: Settings
+        self, owner_id: UUID, data: GroupCreate, producer: ResilientKafkaProducer, settings: Settings
     ) -> GroupRead:
         group = Group(
             name=data.name,
@@ -87,7 +87,7 @@ class GroupService:
         return _to_read(group, count)
 
     async def delete_group(
-        self, group_id: UUID, requester_id: UUID, producer: AIOKafkaProducer, settings: Settings
+        self, group_id: UUID, requester_id: UUID, producer: ResilientKafkaProducer, settings: Settings
     ) -> None:
         group = require_active_group(await self._groups.get_by_id(group_id))
         require_owner(group, requester_id)

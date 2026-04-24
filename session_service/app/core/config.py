@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     kafka_user_events_topic: str = "USER_EVENTS"
     kafka_rating_events_topic: str = "RATING_EVENTS"
     kafka_consumer_group: str = "session-service-group"
+    kafka_send_timeout_seconds: float = 5.0
+    kafka_startup_timeout_seconds: float = 10.0
+    kafka_startup_max_retries: int = 5
+    kafka_startup_retry_delay_seconds: float = 3.0
+    kafka_circuit_breaker_failure_threshold: int = 3
+    kafka_circuit_breaker_recovery_timeout_seconds: float = 30.0
+    kafka_retry_base_delay_seconds: float = 2.0
+    kafka_retry_max_delay_seconds: float = 30.0
 
     # Shared with identity service — same secret, decode-only (no token issuance)
     jwt_secret_key: str = "change-me-in-production-use-openssl-rand-hex-32"

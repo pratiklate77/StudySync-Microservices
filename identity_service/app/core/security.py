@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 from passlib.context import CryptContext
@@ -27,17 +27,19 @@ def create_access_token(subject: UUID, expires_delta: timedelta | None = None) -
         else timedelta(minutes=settings.jwt_access_token_expire_minutes)
     )
     to_encode: dict[str, Any] = {"sub": str(subject), "exp": expire, "type": "access"}
-    return jwt.encode(
-        to_encode,
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
+    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_access_token(token: str) -> dict[str, Any]:
+def create_refresh_token(subject: UUID) -> tuple[str, str]:
+    """Returns (token, jti). jti is stored in Redis to allow revocation."""
     settings = get_settings()
-    return jwt.decode(
-        token,
-        settings.jwt_secret_key,
-        algorithms=[settings.jwt_algorithm],
-    )
+    jti = str(uuid4())
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_token_expire_days)
+    to_encode: dict[str, Any] = {"sub": str(subject), "exp": expire, "type": "refresh", "jti": jti}
+    token = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return token, jti
+
+
+def decode_token(token: str) -> dict[str, Any]:
+    settings = get_settings()
+    return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])

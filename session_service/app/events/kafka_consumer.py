@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 from contextlib import suppress
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from aiokafka import AIOKafkaConsumer
@@ -12,19 +13,12 @@ from app.core.database import get_database
 from app.repositories.session_repository import SessionRepository
 from app.repositories.verified_tutor_repository import VerifiedTutorRepository
 
-if TYPE_CHECKING:
-    pass
-
 logger = logging.getLogger(__name__)
 
 
 class PaymentEventsConsumer:
     """Consumes PAYMENT_SUCCESS from PAYMENT_EVENTS topic.
-
     Flow: Payment Service → Kafka → this consumer → SessionRepository.add_participant()
-
-    Mirrors RatingEventsConsumer in identity service:
-    same start() / stop() / _run_loop() pattern, registered in FastAPI lifespan.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -32,18 +26,40 @@ class PaymentEventsConsumer:
         self._consumer: AIOKafkaConsumer | None = None
         self._task: asyncio.Task[None] | None = None
 
-    async def start(self) -> None:
-        self._consumer = AIOKafkaConsumer(
-            self._settings.kafka_payment_events_topic,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers.split(","),
-            group_id=self._settings.kafka_consumer_group,
-            client_id=f"{self._settings.kafka_client_id}-payment-consumer",
-            enable_auto_commit=True,
-            auto_offset_reset="earliest",
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        )
-        await self._consumer.start()
-        self._task = asyncio.create_task(self._run_loop(), name="session-payment-consumer")
+    async def start(self, retries: int | None = None, delay: float | None = None) -> bool:
+        max_retries = retries if retries is not None else self._settings.kafka_startup_max_retries
+        retry_delay = delay if delay is not None else self._settings.kafka_startup_retry_delay_seconds
+
+        for attempt in range(1, max_retries + 1):
+            consumer = AIOKafkaConsumer(
+                self._settings.kafka_payment_events_topic,
+                bootstrap_servers=self._settings.kafka_bootstrap_servers.split(","),
+                group_id=self._settings.kafka_consumer_group,
+                client_id=f"{self._settings.kafka_client_id}-payment-consumer",
+                enable_auto_commit=True,
+                auto_offset_reset="earliest",
+                value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            )
+            try:
+                await asyncio.wait_for(
+                    consumer.start(),
+                    timeout=self._settings.kafka_startup_timeout_seconds,
+                )
+                self._consumer = consumer
+                self._task = asyncio.create_task(self._run_loop(), name="session-payment-consumer")
+                logger.info("PaymentEventsConsumer connected on attempt %d", attempt)
+                return True
+            except Exception as exc:
+                logger.warning("PaymentEventsConsumer startup attempt %d/%d failed: %s", attempt, max_retries, exc)
+                try:
+                    await consumer.stop()
+                except Exception:
+                    pass
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
+
+        logger.error("PaymentEventsConsumer unavailable after %d attempts", max_retries)
+        return False
 
     async def _run_loop(self) -> None:
         assert self._consumer is not None
@@ -66,21 +82,13 @@ class PaymentEventsConsumer:
                         UUID(str(student_id_raw)),
                     )
                     if added:
-                        logger.info(
-                            "PAYMENT_SUCCESS: student %s joined session %s",
-                            student_id_raw,
-                            session_id_raw,
-                        )
+                        logger.info("PAYMENT_SUCCESS: student %s joined session %s", student_id_raw, session_id_raw)
                     else:
-                        logger.warning(
-                            "PAYMENT_SUCCESS: duplicate or full — student %s session %s",
-                            student_id_raw,
-                            session_id_raw,
-                        )
+                        logger.warning("PAYMENT_SUCCESS: duplicate or full — student %s session %s", student_id_raw, session_id_raw)
                 except Exception:
                     logger.exception("Failed processing PAYMENT_SUCCESS message")
         except asyncio.CancelledError:
-            logger.info("Payment events consumer task cancelled")
+            logger.info("PaymentEventsConsumer task cancelled")
             raise
 
     async def stop(self) -> None:
@@ -96,10 +104,7 @@ class PaymentEventsConsumer:
 
 class UserEventsConsumer:
     """Consumes TUTOR_VERIFIED from USER_EVENTS topic.
-
     Flow: Identity Service → Kafka → this consumer → VerifiedTutorRepository.upsert()
-
-    Same class pattern as PaymentEventsConsumer / RatingEventsConsumer.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -107,18 +112,40 @@ class UserEventsConsumer:
         self._consumer: AIOKafkaConsumer | None = None
         self._task: asyncio.Task[None] | None = None
 
-    async def start(self) -> None:
-        self._consumer = AIOKafkaConsumer(
-            self._settings.kafka_user_events_topic,
-            bootstrap_servers=self._settings.kafka_bootstrap_servers.split(","),
-            group_id=self._settings.kafka_consumer_group,
-            client_id=f"{self._settings.kafka_client_id}-user-consumer",
-            enable_auto_commit=True,
-            auto_offset_reset="earliest",
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-        )
-        await self._consumer.start()
-        self._task = asyncio.create_task(self._run_loop(), name="session-user-consumer")
+    async def start(self, retries: int | None = None, delay: float | None = None) -> bool:
+        max_retries = retries if retries is not None else self._settings.kafka_startup_max_retries
+        retry_delay = delay if delay is not None else self._settings.kafka_startup_retry_delay_seconds
+
+        for attempt in range(1, max_retries + 1):
+            consumer = AIOKafkaConsumer(
+                self._settings.kafka_user_events_topic,
+                bootstrap_servers=self._settings.kafka_bootstrap_servers.split(","),
+                group_id=self._settings.kafka_consumer_group,
+                client_id=f"{self._settings.kafka_client_id}-user-consumer",
+                enable_auto_commit=True,
+                auto_offset_reset="earliest",
+                value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            )
+            try:
+                await asyncio.wait_for(
+                    consumer.start(),
+                    timeout=self._settings.kafka_startup_timeout_seconds,
+                )
+                self._consumer = consumer
+                self._task = asyncio.create_task(self._run_loop(), name="session-user-consumer")
+                logger.info("UserEventsConsumer connected on attempt %d", attempt)
+                return True
+            except Exception as exc:
+                logger.warning("UserEventsConsumer startup attempt %d/%d failed: %s", attempt, max_retries, exc)
+                try:
+                    await consumer.stop()
+                except Exception:
+                    pass
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
+
+        logger.error("UserEventsConsumer unavailable after %d attempts", max_retries)
+        return False
 
     async def _run_loop(self) -> None:
         assert self._consumer is not None
@@ -140,7 +167,7 @@ class UserEventsConsumer:
                 except Exception:
                     logger.exception("Failed processing TUTOR_VERIFIED message")
         except asyncio.CancelledError:
-            logger.info("User events consumer task cancelled")
+            logger.info("UserEventsConsumer task cancelled")
             raise
 
     async def stop(self) -> None:

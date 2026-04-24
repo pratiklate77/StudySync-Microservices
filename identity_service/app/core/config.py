@@ -28,7 +28,8 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str = "change-me-in-production-use-openssl-rand-hex-32"
     jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 60 * 24
+    jwt_access_token_expire_minutes: int = 15
+    jwt_refresh_token_expire_days: int = 7
 
     top_tutors_cache_key: str = "marketplace:top_tutors"
     top_tutors_cache_ttl_seconds: int = 300

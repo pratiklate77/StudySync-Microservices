@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,7 +8,10 @@ from fastapi import FastAPI
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
-from app.events.kafka_producer import create_kafka_producer, stop_kafka_producer
+from app.kafka.circuit_breaker import CircuitBreaker
+from app.kafka.fallback_store import InMemoryFallbackStore
+from app.kafka.producer import ResilientKafkaProducer
+from app.kafka.retry_worker import KafkaRetryWorker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("group-service")
@@ -18,18 +22,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.settings = settings
 
-    # Kafka producer — retry loop handles slow Kafka startup
-    producer = await create_kafka_producer(settings)
-    app.state.kafka_producer = producer
+    fallback_store = InMemoryFallbackStore()
+    circuit_breaker = CircuitBreaker(
+        failure_threshold=settings.kafka_circuit_breaker_failure_threshold,
+        recovery_timeout=settings.kafka_circuit_breaker_recovery_timeout_seconds,
+    )
+    producer = ResilientKafkaProducer(
+        settings=settings,
+        circuit_breaker=circuit_breaker,
+        fallback_store=fallback_store,
+    )
+    connected = await producer.start()
+    if not connected:
+        logger.warning("Continuing startup with Kafka producer in fallback mode")
 
-    # httpx async client — shared across requests, closed on shutdown
+    retry_worker = KafkaRetryWorker(
+        producer=producer,
+        fallback_store=fallback_store,
+        base_delay=settings.kafka_retry_base_delay_seconds,
+        max_delay=settings.kafka_retry_max_delay_seconds,
+    )
+    retry_task = asyncio.create_task(retry_worker.run(), name="group-kafka-retry-worker")
+    app.state.kafka_producer = producer
+    app.state.kafka_retry_task = retry_task
+
     http_client = httpx.AsyncClient(timeout=settings.session_service_timeout_seconds)
     app.state.http_client = http_client
 
     logger.info("Group service startup complete")
     yield
 
-    await stop_kafka_producer(producer)
+    await retry_worker.stop()
+    await retry_task
+    await producer.stop()
     await http_client.aclose()
     logger.info("Group service shutdown complete")
 

@@ -1,12 +1,12 @@
 from uuid import UUID
 
-from aiokafka import AIOKafkaProducer
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.api.v1.deps import get_current_user_id
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
+from app.kafka.producer import ResilientKafkaProducer
 from app.schemas.rating import RatingRead, RatingSubmit
 from app.services.rating_service import RatingService
 
@@ -17,7 +17,7 @@ def get_rating_service(db: AsyncIOMotorDatabase = Depends(get_db)) -> RatingServ
     return RatingService(db)
 
 
-def get_kafka_producer(request: Request) -> AIOKafkaProducer:
+def get_kafka_producer(request: Request) -> ResilientKafkaProducer:
     producer = getattr(request.app.state, "kafka_producer", None)
     if producer is None:
         raise HTTPException(
@@ -33,7 +33,7 @@ async def submit_rating(
     payload: RatingSubmit,
     user_id: UUID = Depends(get_current_user_id),
     service: RatingService = Depends(get_rating_service),
-    producer: AIOKafkaProducer = Depends(get_kafka_producer),
+    producer: ResilientKafkaProducer = Depends(get_kafka_producer),
     settings: Settings = Depends(get_settings),
 ) -> RatingRead:
     return await service.submit(
