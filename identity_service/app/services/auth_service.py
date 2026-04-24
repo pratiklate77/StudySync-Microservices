@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -5,15 +6,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, hash_password, verify_password
+from app.kafka.producer import ResilientKafkaProducer
 from app.models.user import User, UserRole
 from app.repositories.user_repository import UserRepository
+from app.core.config import Settings
 from app.schemas.auth import UserLogin, UserProfileUpdate, UserRegister
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        event_publisher: ResilientKafkaProducer,
+        settings: Settings,
+    ) -> None:
         self._session = session
         self._users = UserRepository(session)
+        self._event_publisher = event_publisher
+        self._settings = settings
 
     async def register(self, data: UserRegister) -> User:
         try:
@@ -24,6 +37,18 @@ class AuthService:
             )
             await self._session.commit()
             await self._session.refresh(user)
+            published = await self._event_publisher.publish(
+                topic=self._settings.kafka_user_events_topic,
+                value={
+                    "event_type": "USER_CREATED",
+                    "user_id": str(user.id),
+                    "email": user.email,
+                    "role": user.role.value,
+                },
+                key=str(user.id).encode("utf-8"),
+            )
+            if not published:
+                logger.warning("USER_CREATED queued for retry user_id=%s", user.id)
             return user
         except IntegrityError:
             await self._session.rollback()

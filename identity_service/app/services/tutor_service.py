@@ -2,12 +2,12 @@ from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
-from aiokafka import AIOKafkaProducer
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.events.kafka_producer import publish_tutor_verified
+from app.kafka.producer import ResilientKafkaProducer
 from app.models.tutor_profile import TutorProfile
 from app.models.user import User, UserRole
 from app.repositories.tutor_repository import TutorRepository
@@ -48,7 +48,7 @@ class TutorService:
         self,
         *,
         target_user_id: UUID,
-        producer: AIOKafkaProducer,
+        producer: ResilientKafkaProducer,
         settings: Settings,
         cache: TopTutorsCacheService,
     ) -> TutorProfile:
